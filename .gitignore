@@ -1,0 +1,7 @@
+.internal/
+.vscode/
+backups/
+node_modules/
+
+.eslintrc.json
+jsconfig.json
