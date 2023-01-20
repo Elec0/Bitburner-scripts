@@ -29,6 +29,7 @@ export async function main(ns) {
     let msg = "";
 
     for (const host of pathToTarget) {
+        if (host == "home") continue;
         msg += "connect " + host + (host != target ? "; " : "");
         //ns.singularity.connect(host);
     }
