@@ -59,6 +59,69 @@ class BatchParameters {
     static MAX_BATCHES = 10;
 
     static MAX_TIME_TO_FINISH = -1;
+
+    static DEFAULT_CORES = 1;
+}
+class HGWFunction {
+    /** @type {Function} */
+    analyze;
+    /** @type {Function} */
+    timeCalc;
+    /** @type {string} */
+    name;
+    /** @type {function} */
+    getNumThreads;
+
+    static HACK = undefined;
+    static GROW = undefined;
+    static WEAKEN = undefined;
+
+    /**
+     * @callback numThreadCallback
+     * @param {import("./NetscriptDefinitions").Server} targetServer
+     * @param {number} hackingCores
+     * @param {HGWFunction} hgwFunction
+     */
+
+    /**
+     * 
+     * @param {string} name 
+     * @param {Function} analyzeFunction 
+     * @param {Function} timeCalcFunction 
+     * @param {numThreadCallback} getNumThreadFunction - Function to use to calculate how many threads need to be run based on whatever
+     */
+    constructor(name, analyzeFunction, timeCalcFunction, getNumThreadFunction) {
+        this.name = name;
+        this.analyze = analyzeFunction;
+        this.timeCalc = timeCalcFunction;
+        this.getNumThreads = getNumThreadFunction;
+    }
+}
+
+class BatchInfo {
+    /** @type {Array<RunInfo>} */
+    runs = [];
+}
+class RunInfo {
+    /** @type {number} */
+    endTime = 0;
+    /** @type {number} */
+    threads = 0;
+    /** @type {string} */
+    script = "";
+    /** @type {import("./NetscriptDefinitions").Server} */
+    targetServer;
+
+    constructor(endTime, threads, script, targetServer) {
+        this.endTime = endTime;
+        this.threads = threads;
+        this.script = script;
+        this.targetServer = targetServer;
+    }
+
+    get [Symbol.toStringTag]() {
+        return `${this.script}, ${this.threads}, ${this.endTime}, ${this.targetServer}`;
+    }
 }
 
 const LOG_TYPE = "terminal"; // or "file"
@@ -81,56 +144,64 @@ export async function main(ns) {
             break;
     }
 
-    // let s = ns.getServer("omega-net");
-    // ns.tprintf("threads %s", getNumGrowthThreads(ns, s, 1));
-    // ns.tprintf("mult %s", getGrowthMultiplier(s));
-    // ns.tprintf("cur money: %s, max money: %s, mult money: %s", s.moneyAvailable, s.moneyMax, s.moneyAvailable * getGrowthMultiplier(s));
-    // ns.tprintf("Growth analyze: %s", ns.formulas.hacking.growPercent(s, getNumGrowthThreads(ns, s, 1), ns.getPlayer()));
-    // return
-    let hacker = "home";
-    const hackingServer = ns.getServer(hacker);
+    /**
+     * @param {import("./NetscriptDefinitions").Server} targetServer 
+     * @param {number} hackingCores 
+     * @param {HGWFunction} hgwFunction 
+     * @returns 
+     */
+    let getNumWeakenThreads = (targetServer, hackingCores, hgwFunction) => {
+        return Math.ceil((targetServer.hackDifficulty - targetServer.minDifficulty) / hgwFunction.analyze(1, hackingCores));
+    }
+
+    /**
+     * Get the number of growth threads needed to max out available money.
+     * @param {import("./NetscriptDefinitions").Server} targetServer 
+     * @param {number} hackingCores 
+     * @param {HGWFunction} hgwFunction 
+     * @returns
+     */
+    let getNumGrowthThreads = (targetServer, hackingCores, hgwFunction) => {
+        let multiplier = getGrowthMultiplier(targetServer);
+        return Math.ceil(Math.max(1, hgwFunction.analyze(targetServer.hostname, multiplier, hackingCores)));
+    }
+
+    let getNumHackThreads = (targetServer, _, hgwFunction) => {
+        let moneyToHack = targetServer.moneyAvailable * HACK_AMT;
+        let hackPerThread = ns.formulas.hacking.hackPercent(targetServer, ns.getPlayer());
+        return Math.round((moneyToHack / targetServer.moneyMax) / hackPerThread);
+    }
+    
+    HGWFunction.HACK = new HGWFunction("hack", ns.hackAnalyzeSecurity, ns.formulas.hacking.hackTime, getNumHackThreads);
+    HGWFunction.GROW = new HGWFunction("grow", ns.growthAnalyzeSecurity, ns.formulas.hacking.growTime, getNumGrowthThreads);
+    HGWFunction.WEAKEN = new HGWFunction("weaken", ns.weakenAnalyze, ns.formulas.hacking.weakenTime, getNumWeakenThreads);
+
     let target = String(flags["_"][0]);
     let targetServer = ns.getServer(target);
 
     // Pre-prepare the target
-    let execTime = await prepare(ns, targetServer.hostname, targetServer, hackingServer);
-    const runs = Math.min(BatchParameters.MAX_BATCHES, calculateAvailableBatchRuns(ns, hackingServer));
+    let execTime = await prepare(ns, targetServer.hostname, targetServer, true);
+    // const runs = Math.min(BatchParameters.MAX_BATCHES, calculateAvailableBatchRuns(ns));
 
-    do {
-        for (let i = 0; i < runs; ++i) {
-            if (i % 10 == 0) {
-                await ns.sleep(5); // Prevent the game from locking up
-            }
+    // do {
+    //     for (let i = 0; i < runs; ++i) {
+    //         if (i % 10 == 0) {
+    //             await ns.sleep(5); // Prevent the game from locking up
+    //         }
 
-            if (BatchParameters.MAX_TIME_TO_FINISH != -1 && execTime > BatchParameters.MAX_TIME_TO_FINISH) {
-                logf(`Exceeded max execution time of ${formatNum(BatchParameters.MAX_TIME_TO_FINISH)}, with ${execTime}. Terminating.`);
-                break;
-            }
-            execTime = runBatch(ns, targetServer, hackingServer, execTime);
-            logf(`Batch #${i + 1} queued on ${targetServer.hostname}, will complete in ${formatTime(execTime)}.`);
-        }
-        if (flags.infinite) {
-            logf(`Wait ${formatTime(execTime)} for batches to complete.`);
-            await ns.sleep(execTime);
-            execTime = 0;
-        }
-    } while (flags.infinite);
-}
-
-/**
- * How many full batch runs can be queued up with the current amount of ram available.
- * @param {import("./NetscriptDefinitions").NS} ns 
- * @param {import("./NetscriptDefinitions").Server} hackingServer
- * @returns {Number}
-*/
-function calculateAvailableBatchRuns(ns, hackingServer) {
-    // TODO: This is just wrong. Need to factor number of threads in
-
-    const total = getScriptRam(ns, SCRIPT_HACKING) + getScriptRam(ns, SCRIPT_GROWTH) + getScriptRam(ns, SCRIPT_WEAKEN);
-    const maxAvailable = hackingServer.maxRam * BatchParameters.MAX_RAM_USED;
-    const runs = Math.floor(maxAvailable / total);
-    logf(`Total ram: ${total}, maxAvailable: ${maxAvailable}, runs: ${runs}`);
-    return runs;
+    //         if (BatchParameters.MAX_TIME_TO_FINISH != -1 && execTime > BatchParameters.MAX_TIME_TO_FINISH) {
+    //             logf(`Exceeded max execution time of ${formatNum(BatchParameters.MAX_TIME_TO_FINISH)}, with ${execTime}. Terminating.`);
+    //             break;
+    //         }
+    //         execTime = runBatch(ns, targetServer, execTime);
+    //         logf(`Batch #${i + 1} queued on ${targetServer.hostname}, will complete in ${formatTime(execTime)}.`);
+    //     }
+    //     if (flags.infinite) {
+    //         logf(`Wait ${formatTime(execTime)} for batches to complete.`);
+    //         await ns.sleep(execTime);
+    //         execTime = 0;
+    //     }
+    // } while (flags.infinite);
 }
 
 /** 
@@ -143,16 +214,15 @@ function calculateAvailableBatchRuns(ns, hackingServer) {
  * We require the target to have been pre-prepared.
  * @param {import("./NetscriptDefinitions").NS} ns
  * @param {import("./NetscriptDefinitions").Server} targetServer - Server object to hack
- * @param {import("./NetscriptDefinitions").Server} hackingServer - What computer is going to be running the scripts
  * @returns {Number} - Amount of time in ms the batch will take to run, added to the initial execTime parameter
 */
-function runBatch(ns, targetServer, hackingServer, execTime = 0) {
+function runBatch(ns, targetServer, execTime = 0) {
     // If the server is already prepped to be hacked, prepExecTime will return 0
     const targetName = targetServer.hostname;
     execTime += hack(ns, targetName, targetServer, execTime);
-    execTime += weaken(ns, targetName, targetServer, hackingServer, execTime);
-    execTime += grow(ns, targetName, targetServer, hackingServer, execTime);
-    execTime += weaken(ns, targetName, targetServer, hackingServer, execTime);
+    execTime += weaken(ns, targetName, targetServer, execTime);
+    execTime += grow(ns, targetName, targetServer, execTime);
+    execTime += weaken(ns, targetName, targetServer, execTime);
 
     return execTime;
 }
@@ -173,122 +243,116 @@ async function prepare(ns, targetName, targetServer, hackingServer, wait = false
     const curTargetServerSecurity = targetServer.hackDifficulty;
     const curTargetServerMoney = targetServer.moneyAvailable;
 
-    let curExecTime = 0;
+    /** @type {Array<RunInfo>} */
+    let curRunList = [];
 
     logf(`Starting difficulty: ${formatNum(curTargetServerSecurity)}, min: ${formatNum(targetServer.minDifficulty)}`);
     logf(`Starting money: $${formatMoney(curTargetServerMoney)}, max money: $${formatMoney(targetServer.moneyMax)}`);
 
     // Don't need to weaken if it's at minimum
     if (!approxEquals(curTargetServerSecurity, targetServer.minDifficulty, fudgeFactor)) {
-        curExecTime += weaken(ns, targetName, targetServer, hackingServer, curExecTime);
+        curRunList.concat(weaken(ns, targetServer, lastElem(curRunList)?.endTime ?? 0));
     }
 
     // Don't need to grow & weaken if the money is at max
     if (!approxEquals(curTargetServerMoney, targetServer.moneyMax, fudgeFactor)) {
-        curExecTime += grow(ns, targetName, targetServer, hackingServer, curExecTime);
-
+        curRunList.concat(grow(ns, targetServer, lastElem(curRunList)?.endTime ?? 0))
+        
         // We've grown, so now we need to weaken again
-        // Our targetServer 'mock' object will be updated by our grow function
-        curExecTime += weaken(ns, targetName, targetServer, hackingServer, curExecTime);
+        // Our targetServer 'mock' object will have been updated by our grow function
+        curRunList.concat(weaken(ns, targetServer, lastElem(curRunList)?.endTime ?? 0))
+    }
+
+    if(curRunList.length == 0) {
+        logf("Nothing to be done, server is already prepared.");
+        return 0;
     }
 
     if (wait) {
-        logf("Finished setting up prepare scripts, waiting for %s", formatTime(curExecTime));
-        await ns.sleep(curExecTime);
+        logf("Finished setting up prepare scripts, waiting for %s", formatTime(lastElem(curRunList).endTime));
+        await ns.sleep(lastElem(curRunList).endTime);
         // If we're waiting, then we should show this info after, but otherwise probably don't need to
         targetServer = ns.getServer(targetName);
         logf("Done.\n%s: Security: %s, Money: $%s, Min Security: %s, Max Money: $%s", targetName,
             targetServer.hackDifficulty, targetServer.moneyAvailable, targetServer.minDifficulty, targetServer.moneyMax);
     }
 
-    return curExecTime;
+    return lastElem(curRunList).endTime;
 }
 
 /**
  * Hack {@link HACK_AMT}% of money from the server.
  * @param {import("./NetscriptDefinitions").NS} ns 
- * @param {string} targetName 
  * @param {import("./NetscriptDefinitions").Server} targetServer 
- * @returns {number} - Result from hackTime()
+ * @returns {RunInfo} - Info required to run the action
  */
-function hack(ns, targetName, targetServer, delayStart) {
-    let moneyToHack = targetServer.moneyAvailable * HACK_AMT;
+function hack(ns, targetServer, delayStart) {
+    /** @type {RunInfo} */
+    const info = action(ns, SCRIPT_HACKING, targetServer, delayStart, HGWFunction.HACK, add);
+
     let hackPerThread = ns.formulas.hacking.hackPercent(targetServer, ns.getPlayer());
-    let threads = Math.round((moneyToHack / targetServer.moneyMax) / hackPerThread);
+    targetServer.moneyAvailable = targetServer.moneyAvailable * (1 - (hackPerThread * info.threads));
 
-    let hackTime = ns.formulas.hacking.hackTime(targetServer, ns.getPlayer());
-
-    const secIncrease = ns.hackAnalyzeSecurity(threads);
-    targetServer.hackDifficulty += secIncrease
-    targetServer.moneyAvailable = targetServer.moneyAvailable * (1 - (hackPerThread * threads));
-
-    logf(`Hack threads  : ${threads}, time: ${formatTime(hackTime)}, secIncrease: ${formatNum(secIncrease)}, moneyToHack: $${formatMoney(moneyToHack)}`);
-    runScript(ns, SCRIPT_HACKING, targetName, threads, delayStart);
-
-    return addSettleTime(hackTime);
+    return info;
 }
 
 /**
  * Weaken target server to minimum security
  * @param {import("./NetscriptDefinitions").NS} ns 
- * @param {string} targetName 
  * @param {import("./NetscriptDefinitions").Server} targetServer 
- * @param {import("./NetscriptDefinitions").Server} hackingServer 
- * @returns {number} - Result from formulas.weakenTime() + settleTime
+ * @returns {RunInfo} - Info required to run the action
  */
-function weaken(ns, targetName, targetServer, hackingServer, delayStart) {
-    let weakenThreads = getNumWeakenThreads(ns, targetServer.hackDifficulty, targetServer.minDifficulty, hackingServer.cpuCores);
-    let weakenTime = ns.formulas.hacking.weakenTime(targetServer, ns.getPlayer());
-    targetServer.hackDifficulty -= ns.weakenAnalyze(weakenThreads, hackingServer.cpuCores);
-
-    logf("Weaken threads: %s, time: %s", weakenThreads, formatTime(weakenTime));
-
-    runScript(ns, SCRIPT_WEAKEN, targetName, weakenThreads, delayStart);
-    return addSettleTime(weakenTime);
+function weaken(ns, targetServer, delayStart) {
+    return action(ns, SCRIPT_WEAKEN, targetServer, delayStart, HGWFunction.WEAKEN, add);
 }
 
 /**
  * Grow target server to max money
  * @param {import("./NetscriptDefinitions").NS} ns 
- * @param {string} targetName 
  * @param {import("./NetscriptDefinitions").Server} targetServer 
- * @param {import("./NetscriptDefinitions").Server} hackingServer 
  * @param {number} delayStart - How long, in ms, to wait to start the grow function
- * @returns {number} - Result from formulas.growTime() + settleTime
+ * @returns {RunInfo} - Info required to run the action
  */
-function grow(ns, targetName, targetServer, hackingServer, delayStart) {
-    let growThreads = getNumGrowthThreads(ns, targetServer, hackingServer.cpuCores);
+function grow(ns, targetServer, delayStart) {
+    const info = action(ns, SCRIPT_GROWTH, targetServer, delayStart, HGWFunction.GROW, add);
+    targetServer.moneyAvailable *= getGrowthMultiplier(targetServer);
+    return info;
+
+    // let growThreads = getNumGrowthThreads(ns, targetServer, hackingServer.cpuCores);
 
     // Grow raises the security level of the target server by 0.004 per thread.
-    let growSecurityAdd = ns.growthAnalyzeSecurity(growThreads, null, hackingServer.cpuCores);
-    let growTime = ns.formulas.hacking.growTime(targetServer, ns.getPlayer());
+    // let growSecurityAdd = ns.growthAnalyzeSecurity(growThreads, null, hackingServer.cpuCores);
+    // let growTime = ns.formulas.hacking.growTime(targetServer, ns.getPlayer());
 
-    targetServer.hackDifficulty += growSecurityAdd;
+    // targetServer.hackDifficulty += growSecurityAdd;
 
-    logf("Growth threads: %s, securityAdd: %s, time: %s", growThreads, formatNum(growSecurityAdd), formatTime(growTime));
-    runScript(ns, SCRIPT_GROWTH, targetName, growThreads, delayStart);
-
-    targetServer.moneyAvailable *= getGrowthMultiplier(targetServer);
-
-    return addSettleTime(growTime);
+    // logf("Growth threads: %s, securityAdd: %s, time: %s", growThreads, formatNum(growSecurityAdd), formatTime(growTime));
+    // runScript(ns, SCRIPT_GROWTH, targetName, growThreads, delayStart);
 }
 
-/** Run a script, but clamp threads to available memory, if possible. */
-function runScriptClamp(ns, scriptName, targetName, threads, startDelay, tail = false) {
-    const availableRam = ns.getServer().maxRam - ns.getServer().ramUsed;
-    const reqRam = getScriptRam(ns, scriptName) * threads;
-    let runThreads = threads;
+/**
+ * Generic function for hack, grow, or weaken.
+ * Does update the security of the targetServer, but nothing else.
+ * @param {import("./NetscriptDefinitions").NS} ns 
+ * @param {string} scriptName - What script to run
+ * @param {import("./NetscriptDefinitions").Server} targetServer
+ * @param {HGWFunction} hgwFunction - What methods to use for analysis 
+ * @returns {RunInfo} - Constructed object for this run
+ */
+function action(ns, scriptName, targetServer, delayStart, hgwFunction, difficultyOperator) {
+    let threads = hgwFunction.getNumThreads(targetServer, BatchParameters.DEFAULT_CORES);
+    let runTime = hgwFunction.timeCalc(targetServer, ns.getPlayer());
+    // Let us pass in a method to handle adding or subtracting without a branch
+    // Clamp the value to min difficulty and 100
+    targetServer.hackDifficulty = clamp(
+        targetServer.minDifficulty,
+        difficultyOperator(targetServer.hackDifficulty, hgwFunction.analyze(threads)),
+        100
+    );
 
-    if (reqRam > availableRam) {
-        logf(`WARN: Not enough available ram to run '${scriptName} on ${targetName} w/ ${threads} threads (req: ${reqRam}, have: ${availableRam})`);
+    logf("Action '%s', threads: %s, end time: %s", hgwFunction.name, threads, formatTime(runTime));
 
-        runThreads = Math.floor(availableRam / getScriptRam(ns, scriptName));
-        if (threads == 0) {
-            throw `ERROR: Ram out of RAM trying to run (${scriptName}, ${targetName}, ${threads}, ${startDelay}!`
-        }
-        logf(`WARN: \tRunning with ${runThreads} threads instead.`);
-    }
-    runScript(ns, scriptName, targetName, runThreads, startDelay, tail);
+    return new RunInfo(delayStart + addSettleTime(runTime), threads, scriptName, targetServer);
 }
 
 /**
@@ -348,30 +412,13 @@ function getScriptRam(ns, scriptName) {
 // #region Lambda functions
 // ------------------------
 
-/**
- * Get the number of weaken threads needed to decrease security to minimum.
- * @param {import("./NetscriptDefinitions").NS} ns
- * @param {number} hackDifficulty Current security level
- * @param {number} minDifficulty Minimum possible security level
- * @param {number} hackingCores 
- */
-let getNumWeakenThreads = (ns, hackDifficulty, minDifficulty, hackingCores) => {
-    return Math.ceil((hackDifficulty - minDifficulty) / ns.weakenAnalyze(1, hackingCores));
-}
-
-/**
- * Get the number of growth threads needed to max out available money.
- * @param {import("./NetscriptDefinitions").NS} ns
- * @param {import("./NetscriptDefinitions").Server} targetServer 
- * @param {number} hackingCores 
- */
-let getNumGrowthThreads = (ns, targetServer, hackingCores) => {
-    let multiplier = getGrowthMultiplier(targetServer);
-    return Math.ceil(Math.max(1, ns.growthAnalyze(targetServer.hostname, multiplier, hackingCores)));
-}
-
 /** If the server has $0.00, calculate assuming it has $10 to avoid divide-by-zero errors */
 let getGrowthMultiplier = (targetServer) => targetServer.moneyMax / Math.max(targetServer.moneyAvailable, 10);
+
+/** Function for {@link action} */
+let subtract = (totalV, modifyV) => totalV - modifyV;
+/** Function for {@link action} */
+let add = (totalV, modifyV) => totalV + modifyV;
 
 /** How long the gap between scripts should be, in ms. */
 let addSettleTime = (timeMs) => timeMs + SETTLE_TIME;
@@ -390,6 +437,16 @@ let approxEquals = (num1, num2, fudge) =>
 
 // #region Utility functions
 // -------------------------
+
+/**
+ * Return the last element in the array
+ * @template T
+ * @param {Array<T>} arr 
+ * @returns {T}
+ */
+function lastElem(arr) {
+    return arr[arr.length - 1];
+}
 
 /**
  * @param {number} time 
@@ -425,6 +482,10 @@ function formatNum(num) {
  */
 function formatMoney(money) {
     return money.toLocaleString("en-US");
+}
+
+function clamp(number, min, max) {
+    return Math.max(min, Math.min(number, max));
 }
 
 // #endregion
