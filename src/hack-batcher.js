@@ -35,7 +35,7 @@ between 20ms and 200ms, you want to fine-tune this value to be as low as possibl
 Anything lower than 20ms will not work due to javascript limitations.
 */
 
-import { traverse } from "lib/traverse";
+import { DfsServer, traverse } from "lib/traverse";
 
 /*
 TODO:
@@ -85,8 +85,6 @@ class HGWFunction {
      * @param {HGWFunction} hgwFunction
      */
 
-    // TODO
-    //     reduce(callbackfn: (previousValue: T, currentValue: T, currentIndex: number, array: T[]) => T): T;
     /**
      * 
      * @param {string} name 
@@ -426,10 +424,16 @@ function runScript(ns, scriptName, targetName, threads, startDelay, tail = false
  * @param {Array<RunInfo>} runList - List of all the RunInfos that we want to run. 
  */
 function executeRunList(ns, runList) {
-    const netRam = getTotalNetworkRam(ns);
+    /** @type {RamAndNetwork} */
+    const ramNetwork = getTotalNetworkRam(ns);
+    const netRam = ramNetwork.ram;
+    const network = ramNetwork.servers;
+
     logf(`Total network ram: ${netRam}`);
     const ramNeeded = runList.reduce((accumulator, curVal) => accumulator + calculateRamNeeded(ns, curVal), 0);
     logf(`Total ram needed: ${ramNeeded}`);
+    logf("Full network");
+    ns.tprint(network);
 
     // Check if there are any single operations that require more ram than we have in the whole network
     // We can't run this list, so error out.
@@ -457,21 +461,31 @@ function calculateRamNeeded(ns, runInfo) {
 }
 
 /**
+ * @typedef {Object} RamAndNetwork
+ * @property {number} ram - Total RAM of all servers in the network
+ * @property {Set} servers - All servers in the network
+ */
+
+/**
  * Get total RAM across all hacked networks on the network.
  * @param {import("./NetscriptDefinitions").NS} ns 
+ * @returns {RamAndNetwork} - RAM and network contents
  */
 function getTotalNetworkRam(ns) {
     let ram = 0;
     /**
      * @param {import("./NetscriptDefinitions").NS} ns
-     * @param {string} hostname 
+     * @param {import("./NetscriptDefinitions").Server} server 
      */
-    let getRam = (ns, hostname) => {
-        ram += ns.getServer(hostname).maxRam;
+    let getRam = (ns, server) => {
+        ram += server.maxRam;
     }
-    traverse(ns, ns.getServer().hostname, new Set(), getRam, { killScript: false, visitOurs: true});
+    let visited = new Set();
+    DfsServer(ns, ns.getServer(), visited, getRam);
+    logf("get total done")
+    // traverse(ns, ns.getServer().hostname, visited, getRam, { killScript: false});
 
-    return ram;
+    return {ram: ram, servers: visited};
 }
 
 /** 
