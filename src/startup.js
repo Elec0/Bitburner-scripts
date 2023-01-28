@@ -34,33 +34,43 @@ export async function main(ns) {
     IncludeHome = Boolean(flags.home);
     Script = flags.script.toString();
 
-    await traverse(ns, "home", new Set(), traverseCallback, { killScript: true, scriptName: flags.script.toString(), killOurs: true });
+    await traverse({
+        ns: ns,
+        hostname: "home", visited: new Set(), callback: traverseCallback,
+        killScript: true, scriptName: flags.script.toString(), killOurs: true,
+        isAsync: true
+    });
 
     if (ns.getPurchasedServers().length != 0) {
         ns.tprint("Purchased servers:"); // Only print this if we're going to run the next block
     }
     for (const neighbor of ns.getPurchasedServers()) {
         uploadScript(ns, neighbor);
-        await runScript(ns, neighbor, HackTarget);
+        await runScript(ns, ns.getServer(neighbor), HackTarget);
     }
 
     ns.tprint("== Done ==");
 }
 
-async function traverseCallback(ns, hostname) {
-    if (doHack(ns, hostname)) {
-        await runScript(ns, hostname, HackTarget);
+/**
+ * 
+ * @param {import("./NetscriptDefinitions").NS} ns 
+ * @param {import("./NetscriptDefinitions").Server} server 
+ */
+async function traverseCallback(ns, server) {
+    if (doHack(ns, server)) {
+        await runScript(ns, server, HackTarget);
     }
 }
 
 /** 
  * Breach host if we have enough port hacks to open it, then nuke and exec {@link SCRIPT_TO_RUN}
  * @param {import("./NetscriptDefinitions").NS} ns
- * @param {string} hostname 
- * @returns {boolean} If the hacking script should be run on this host
+ * @param {import("./NetscriptDefinitions").Server} server
+ * @returns {boolean} - If the hacking script should be run on this host
 */
-function doHack(ns, hostname) {
-    let server = ns.getServer(hostname);
+function doHack(ns, server) {
+    const hostname = server.hostname;
     const ports = server.numOpenPortsRequired;
     const numPortHacks = numPortHacksPresent(ns);
 
@@ -71,8 +81,7 @@ function doHack(ns, hostname) {
             return false;
         }
     }
-    else if (!IncludeHome)
-    {
+    else if (!IncludeHome) {
         return false;
     }
 
@@ -118,9 +127,13 @@ function uploadScript(ns, hostname) {
     ns.scp(Script, hostname, "home");
 }
 
-/** @param {import("./NetscriptDefinitions").NS} ns */
-async function runScript(ns, hostname, target) {
-    const server = ns.getServer(hostname);
+/** 
+ * @param {import("./NetscriptDefinitions").NS} ns 
+ * @param {import("./NetscriptDefinitions").Server} server
+ * @param {string} target
+*/
+async function runScript(ns, server, target) {
+    const hostname = server.hostname;
     const mem = ns.getScriptRam(Script);
     let availableRam = (server.maxRam - server.ramUsed);
     if (hostname == "home") availableRam *= (1 - HOME_PERCENT_RAM_LEAVE);
@@ -128,7 +141,7 @@ async function runScript(ns, hostname, target) {
 
     // Make sure the server we're going to be running the script against is hacked
     if (target != "" && !ns.getServer(target).hasAdminRights) {
-        doHack(ns, target);
+        doHack(ns, ns.getServer(target));
     }
 
     if (threads == 0) {
@@ -155,6 +168,6 @@ export function numPortHacksPresent(ns) {
  * @param {string[]} args - current arguments. Minus run script.js 
  * @returns {string[]}
  */
-    export function autocomplete(data, args) {
-        return [...data.servers];
-    }
+export function autocomplete(data, args) {
+    return [...data.servers];
+}

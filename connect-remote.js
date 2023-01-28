@@ -1,5 +1,5 @@
 //@ts-check
-import { traverse, traverseSearch } from "lib/traverse";
+import { traverseSearch } from "lib/traverse";
 
 let logf;
 let flags;

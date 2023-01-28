@@ -35,7 +35,7 @@ between 20ms and 200ms, you want to fine-tune this value to be as low as possibl
 Anything lower than 20ms will not work due to javascript limitations.
 */
 
-import { DfsServer, traverse } from "lib/traverse";
+import { DfsServer } from "lib/traverse";
 
 /*
 TODO:
@@ -180,7 +180,7 @@ export async function main(ns) {
         let hackPerThread = ns.formulas.hacking.hackPercent(targetServer, ns.getPlayer());
         return Math.round((moneyToHack / targetServer.moneyMax) / hackPerThread);
     }
-    
+
     HGWFunction.HACK = new HGWFunction("hack", ns.hackAnalyzeSecurity, ns.formulas.hacking.hackTime, getNumHackThreads);
     HGWFunction.GROW = new HGWFunction("grow", ns.growthAnalyzeSecurity, ns.formulas.hacking.growTime, getNumGrowthThreads);
     HGWFunction.WEAKEN = new HGWFunction("weaken", ns.weakenAnalyze, ns.formulas.hacking.weakenTime, getNumWeakenThreads);
@@ -275,13 +275,13 @@ async function prepare(ns, targetName, targetServer, hackingServer, wait = false
     // Don't need to grow & weaken if the money is at max
     if (!approxEquals(curTargetServerMoney, targetServer.moneyMax, fudgeFactor)) {
         curRunList.push(grow(ns, targetServer, lastElem(curRunList)?.endTime ?? 0))
-        
+
         // We've grown, so now we need to weaken again
         // Our targetServer 'mock' object will have been updated by our grow function
         curRunList.push(weaken(ns, targetServer, lastElem(curRunList)?.endTime ?? 0))
     }
 
-    if(curRunList.length == 0) {
+    if (curRunList.length == 0) {
         logf("Nothing to be done, server is already prepared.");
         return [];
     }
@@ -426,10 +426,13 @@ function runScript(ns, scriptName, targetName, threads, startDelay, tail = false
 function executeRunList(ns, runList) {
     /** @type {RamAndNetwork} */
     const ramNetwork = getTotalNetworkRam(ns);
-    const netRam = ramNetwork.ram;
+    const netRamInitial = ramNetwork.ram;
+    // We can't use the ram the current script is using, so remove it
+    const netRam = netRamInitial - getScriptRam(ns, ns.getScriptName());
     const network = ramNetwork.servers;
 
-    logf(`Total network ram: ${netRam}`);
+    logf(`Total network ram: ${netRamInitial}`);
+    logf(`Total network ram adj: ${netRam}`);
     const ramNeeded = runList.reduce((accumulator, curVal) => accumulator + calculateRamNeeded(ns, curVal), 0);
     logf(`Total ram needed: ${ramNeeded}`);
     logf("Full network");
@@ -442,7 +445,7 @@ function executeRunList(ns, runList) {
             logf(`ERROR: Network RAM is insufficient to run the single RunInfo "${runList[i].toString()}"`)
             return null;
         }
-        
+
     }
     // TODO: Change this to pause or something instead of failing
     if (ramNeeded > netRam) {
@@ -473,19 +476,15 @@ function calculateRamNeeded(ns, runInfo) {
  */
 function getTotalNetworkRam(ns) {
     let ram = 0;
-    /**
-     * @param {import("./NetscriptDefinitions").NS} ns
-     * @param {import("./NetscriptDefinitions").Server} server 
-     */
-    let getRam = (ns, server) => {
-        ram += server.maxRam;
-    }
-    let visited = new Set();
-    DfsServer(ns, ns.getServer(), visited, getRam);
-    logf("get total done")
-    // traverse(ns, ns.getServer().hostname, visited, getRam, { killScript: false});
 
-    return {ram: ram, servers: visited};
+    let availableRam = (ns, server) => { ram += server.maxRam - server.ramUsed};
+    let totalRam = (ns, server) => { ram += server.maxRam};
+
+    let visited = new Set();
+
+    DfsServer(ns, ns.getServer(), visited, totalRam);
+
+    return { ram: ram, servers: visited };
 }
 
 /** 
