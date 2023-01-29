@@ -8,5 +8,5 @@ export async function main(ns) {
     let log = logTerm ? ns.tprint : ns.print
     await ns.sleep(sleepTime);
     const amt = await ns.grow(target);
-    log(`Finished growing ${target} by x${amt}`);
+    log(`Finished growing ${target} by x${amt.toFixed(2)}`);
 }
