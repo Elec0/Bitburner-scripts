@@ -200,6 +200,7 @@ const LogTypes = {
 /** @type {LogTypes} */
 const LOG_TYPE = LogTypes.TERMINAL;
 let logf;
+let loge;
 
 /** @param {import("./NetscriptDefinitions").NS} ns */
 export async function main(ns) {
@@ -216,6 +217,7 @@ export async function main(ns) {
             logf = ns.printf;
             break;
     }
+    loge = ns.tprint;
 
     /**
      * @param {import("./NetscriptDefinitions").Server} targetServer 
@@ -262,8 +264,6 @@ export async function main(ns) {
     // Prepare the target before any batches start
     let batchInfo = prepare(ns, targetServer);
 
-    logf(`Run list length: ${batchInfo.runs.length}`);
-
     do {
         // Create enough batches until the min starting delay in a batch is greater than
         // the ending time of the first RunInfo
@@ -273,7 +273,6 @@ export async function main(ns) {
         do {
             const newBatch = createHWGWBatch(ns, targetServer, batchInfo.lastRun());
             const minVal = Math.min(...newBatch.runs.map(({ startDelayTime }) => startDelayTime));
-            logf(`minVal: ${minVal}, len: ${batchInfo.runs.length}, ramNeeded: ${batchInfo.ramNeeded()}, networkRam: ${networkRam}`);
 
             if (batchInfo.runs[0] != undefined
                 && (minVal > batchInfo.runs[0].endTime || batchInfo.ramNeeded() > networkRam)) {
@@ -285,7 +284,6 @@ export async function main(ns) {
             }
         } while (create)
 
-        logf(`batchInfo length: ${batchInfo.runs.length}`);
         const executeResult = await executeRunList(ns, batchInfo);
         // If it failed for whatever reason, stop us from doing anything else
         if (executeResult == false) {
@@ -527,12 +525,12 @@ async function executeRunList(ns, batchInfo) {
     const netRam = netRamInitial - getScriptRam(ns, ns.getScriptName());
     const ramNeeded = batchInfo.ramNeeded();
 
-    logf(`Usable network RAM: ${netRam}, Total RAM needed: ${ramNeeded}`);
+    logf(`Usable network RAM: ${netRam.toLocaleString("en-US")}, Total RAM needed: ${ramNeeded.toLocaleString("en-US")}`);
 
     // Check if there are any single operations that require more ram than we have in the whole network
     // We can't run this list, so error out
     if (batchInfo.runs.some((elem) => elem.ramNeeded() > netRam)) {
-        logf(`ERROR: Network RAM is insufficient to run a single RunInfo`);
+        loge(`ERROR: Network RAM is insufficient to run a single RunInfo`);
         return false;
     }
 
