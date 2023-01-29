@@ -9,5 +9,6 @@ export async function main(ns) {
 
     await ns.sleep(sleepTime);
     const gainedMoney = await ns.hack(target);
+
     log(`Finished hacking ${target}, +$${gainedMoney.toLocaleString("en-us")}.`)
 }
