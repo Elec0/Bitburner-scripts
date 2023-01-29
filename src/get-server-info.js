@@ -44,7 +44,7 @@ export async function main(ns) {
         return;
     }
 
-    await traverse(ns, "home", new Set(), toRun, { killScript: false });
+    await traverse({ns: ns, hostname: "home", visited: new Set(), callback: toRun });
 
     ServerInfoList.sort((a, b) => a["hackRank"] - b["hackRank"] || a.moneyMax - b.moneyMax);
     let output = "";
@@ -80,11 +80,12 @@ function rankServer(ns, hostname) {
 
 /**
  * @param {import("./NetscriptDefinitions").NS } ns 
- * @param {string} hostname 
+ * @param {import("./NetscriptDefinitions").Server} server 
  */
-async function toRun(ns, hostname) {
-    let server = ns.getServer(hostname);
+async function toRun(ns, server) {
+    const hostname = server.hostname;
     server["hackRank"] = rankServer(ns, hostname);
+
     if (OnlyCanHack) {
         if (!server.hasAdminRights && canHack(ns, server)) {
             ServerInfoList.push(server);
@@ -92,7 +93,6 @@ async function toRun(ns, hostname) {
     }
     else if (OnlyAdmin && server.hasAdminRights) {
         ServerInfoList.push(server);
-        // ns.tprint(server)
     }
     else if (!OnlyAdmin) {
         ServerInfoList.push(server);
