@@ -35,10 +35,10 @@ between 20ms and 200ms, you want to fine-tune this value to be as low as possibl
 Anything lower than 20ms will not work due to javascript limitations.
 */
 
-import { DfsServer } from "lib/traverse";
+import { DfsServer, traverse } from "lib/traverse";
 
-/*
-TODO:
+/**
+@todo
 1. Calculate ram needed before batch is run
 2. Run scripts across all hacked computers for better RAM usage
 3. Don't fail on running out of ram partway through a batch, allow the loop to pick back up once it has the ram available
@@ -126,7 +126,16 @@ class RunInfo {
     }
 }
 
-const LOG_TYPE = "terminal"; // or "file"
+/**
+ * @enum
+ * @readonly
+ */
+const LogTypes = {
+    TERMINAL: "terminal",
+    FILE: "file"
+}
+/** @type {LogTypes} */
+const LOG_TYPE = LogTypes.TERMINAL;
 let logf;
 
 /** @param {import("./NetscriptDefinitions").NS} ns */
@@ -137,11 +146,10 @@ export async function main(ns) {
     ]);
 
     switch (LOG_TYPE) {
-        case "terminal":
+        case LogTypes.TERMINAL:
             logf = ns.tprintf;
             break;
-        // @ts-ignore
-        case "file":
+        case LogTypes.FILE:
             logf = ns.printf;
             break;
     }
@@ -195,7 +203,7 @@ export async function main(ns) {
 
     logf(`Run list length: ${runList.length}`);
 
-    const executeResult = executeRunList(ns, runList);
+    const executeResult = await executeRunList(ns, runList);
     // If it failed for whatever reason, stop us from doing anything else
     if (executeResult == null) {
         return;
@@ -249,7 +257,7 @@ function runBatch(ns, targetServer) {
  * Ensure the target server is properly setup for the start of the batch hack
  * Runs WGW
  * 
- * TODO: Wait on prepare scripts if we run out of ram for them
+ * @todo Wait on prepare scripts if we run out of ram for them
  * 
  * @param {import("./NetscriptDefinitions").NS} ns
  * @param {string} targetName 
@@ -419,37 +427,50 @@ function runScript(ns, scriptName, targetName, threads, startDelay, tail = false
 }
 
 /**
- * 
+* @param {import("./NetscriptDefinitions").NS} ns 
+* @param {string} scriptName - Full path to script to run
+* @param {number} threads - How many threads to run of script
+* @param {Array<import("./NetscriptDefinitions").Server>} network - Array of whole network, sorted by available RAM
+* @param {boolean} tail - Open the script log file tail?
+* @param {...(number | string)} args - Arguments to pass into the script
+*/
+function runNetworkScript(ns, scriptName, threads, network, tail = false, ...args) {
+
+}
+
+/**
+ * Fire off the scripts requested.
+ * If there isn't enough RAM across the whole network to run the given step, wait until 
+ * we have more ram available.
  * @param {import("./NetscriptDefinitions").NS} ns -
  * @param {Array<RunInfo>} runList - List of all the RunInfos that we want to run. 
  */
-function executeRunList(ns, runList) {
+async function executeRunList(ns, runList) {
     /** @type {RamAndNetwork} */
-    const ramNetwork = getTotalNetworkRam(ns);
+    const ramNetwork = await getTotalNetworkRam(ns);
     const netRamInitial = ramNetwork.ram;
     // We can't use the ram the current script is using, so remove it
     const netRam = netRamInitial - getScriptRam(ns, ns.getScriptName());
-    const network = ramNetwork.servers;
+    const sortedNetwork = Array.from(ramNetwork.servers).sort(serverSort);
 
-    logf(`Total network ram: ${netRamInitial}`);
-    logf(`Total network ram adj: ${netRam}`);
     const ramNeeded = runList.reduce((accumulator, curVal) => accumulator + calculateRamNeeded(ns, curVal), 0);
-    logf(`Total ram needed: ${ramNeeded}`);
-    logf("Full network");
-    ns.tprint(network);
+    logf(`Usable network RAM: ${netRam}, Total RAM needed: ${ramNeeded}`);
 
     // Check if there are any single operations that require more ram than we have in the whole network
-    // We can't run this list, so error out.
-    for (let i = 0; i < runList.length; i++) {
-        if (calculateRamNeeded(ns, runList[i]) > netRam) {
-            logf(`ERROR: Network RAM is insufficient to run the single RunInfo "${runList[i].toString()}"`)
-            return null;
-        }
-
+    // We can't run this list, so error out. Check this first before we run anything.
+    if (runList.some((elem) => calculateRamNeeded(ns, elem) > netRam)) {
+        logf(`ERROR: Network RAM is insufficient to run a single RunInfo`);
+        return null;
     }
-    // TODO: Change this to pause or something instead of failing
+
     if (ramNeeded > netRam) {
-        logf(`ERROR: Don't have enough ram across the network to run the requested operation.`)
+        logf(`WARN: Don't have enough ram across the network to run the requested operation, execution time will be longer as a result`);
+    }
+
+    for (let i = 0; i < runList.length; i++) {
+        const elem = runList[i];
+        logf(`Run ${elem.toString()}`);
+        
     }
 }
 
@@ -466,23 +487,24 @@ function calculateRamNeeded(ns, runInfo) {
 /**
  * @typedef {Object} RamAndNetwork
  * @property {number} ram - Total RAM of all servers in the network
- * @property {Set} servers - All servers in the network
+ * @property {Set<import("./NetscriptDefinitions").Server>} servers - All servers in the network
  */
 
 /**
  * Get total RAM across all hacked networks on the network.
  * @param {import("./NetscriptDefinitions").NS} ns 
- * @returns {RamAndNetwork} - RAM and network contents
+ * @returns {Promise<RamAndNetwork>} - RAM and network contents
  */
-function getTotalNetworkRam(ns) {
+async function getTotalNetworkRam(ns) {
     let ram = 0;
 
-    let availableRam = (ns, server) => { ram += server.maxRam - server.ramUsed};
-    let totalRam = (ns, server) => { ram += server.maxRam};
+    let availableRam = (ns, server) => { ram += server.maxRam - server.ramUsed };
+    let totalRam = (ns, server) => { ram += server.maxRam };
 
+    /** @type {Set<import("./NetscriptDefinitions").Server>} */
     let visited = new Set();
 
-    DfsServer(ns, ns.getServer(), visited, totalRam);
+    await DfsServer(ns, ns.getServer(), visited, totalRam);
 
     return { ram: ram, servers: visited };
 }
@@ -500,15 +522,15 @@ function getScriptRam(ns, scriptName) {
 // ------------------------
 
 /** If the server has $0.00, calculate assuming it has $10 to avoid divide-by-zero errors */
-let getGrowthMultiplier = (targetServer) => targetServer.moneyMax / Math.max(targetServer.moneyAvailable, 10);
+const getGrowthMultiplier = (targetServer) => targetServer.moneyMax / Math.max(targetServer.moneyAvailable, 10);
 
 /** Function for {@link action} */
-let subtract = (totalV, modifyV) => totalV - modifyV;
+const subtract = (totalV, modifyV) => totalV - modifyV;
 /** Function for {@link action} */
-let add = (totalV, modifyV) => totalV + modifyV;
+const add = (totalV, modifyV) => totalV + modifyV;
 
 /** How long the gap between scripts should be, in ms. */
-let addSettleTime = (timeMs) => timeMs + SETTLE_TIME;
+const addSettleTime = (timeMs) => timeMs + SETTLE_TIME;
 
 /**
  * @param {number} num1 Number to compare
@@ -516,9 +538,16 @@ let addSettleTime = (timeMs) => timeMs + SETTLE_TIME;
  * @param {number} fudge Percent of num2 that num1 is allowed to be below and/or above num2
  * @returns 
  */
-let approxEquals = (num1, num2, fudge) =>
+const approxEquals = (num1, num2, fudge) =>
     (num1 >= num2 * (1 - fudge)) && (num1 <= num2 * (1 + fudge));
 
+/**
+ * Sort servers by available ram, descending.
+ * @param {import("./NetscriptDefinitions").Server} server1 
+ * @param {import("./NetscriptDefinitions").Server} server2
+ * @returns 
+ */
+const serverSort = (server1, server2) => (server2.maxRam - server2.ramUsed) - (server1.maxRam - server1.ramUsed)
 // #endregion Lambda functions
 
 
