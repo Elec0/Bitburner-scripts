@@ -190,7 +190,7 @@ class RunInfo {
 }
 
 /**
- * @enum
+ * @enum {string}
  * @readonly
  */
 const LogTypes = {
@@ -202,11 +202,45 @@ const LOG_TYPE = LogTypes.TERMINAL;
 let logf;
 let loge;
 
+/**
+ * Extracted `ns.growthAnalyze`, so we can use a mock server.
+ * Returns the number of "growth cycles" needed to grow the specified server by the
+ * specified amount.
+ * 
+ * @param {import("./NetscriptDefinitions").NS} ns
+ * @param {import("./NetscriptDefinitions").Server} server - Server being grown
+ * @param {number} growth - How much the server is being grown by, in DECIMAL form (e.g. 1.5 rather than 50)
+ * @param {number} [cores=1] - How many cores the hacking server is using
+ * @returns Number of "growth cycles" needed
+ */
+function numCycleForGrowth(ns, server, growth, cores = 1) {
+    const ServerBaseGrowthRate = 1.03;
+    const ServerMaxGrowthRate = 1.0035;
+    let ajdGrowthRate = 1 + (ServerBaseGrowthRate - 1) / server.hackDifficulty;
+    if (ajdGrowthRate > ServerMaxGrowthRate) {
+      ajdGrowthRate = ServerMaxGrowthRate;
+    }
+  
+    const serverGrowthPercentage = server.serverGrowth / 100;
+  
+    const coreBonus = 1 + (cores - 1) / 16;
+    const cycles =
+      Math.log(growth) /
+      (Math.log(ajdGrowthRate) *
+        ns.getPlayer().mults.hacking_grow *
+        serverGrowthPercentage *
+        /*BitNodeMultipliers.ServerGrowthRate */ 1 *
+        /* (get this from https://github.com/bitburner-official/bitburner-src/blob/aa32e235fafd7722d7dcbdd1ff0053363b240318/src/BitNode/BitNode.tsx) */
+        coreBonus);
+  
+    return cycles;
+  }
+
 /** @param {import("./NetscriptDefinitions").NS} ns */
 export async function main(ns) {
     let flags = ns.flags([
         ["help", false],
-        ["infinite", true]
+        ["infinite", false]
     ]);
 
     switch (LOG_TYPE) {
@@ -238,7 +272,16 @@ export async function main(ns) {
      */
     let getNumGrowthThreads = (targetServer, hackingCores, _hgwFunction) => {
         let multiplier = getGrowthMultiplier(targetServer); // threads, cores
-        return Math.ceil(Math.max(1, ns.growthAnalyze(targetServer.hostname, multiplier, hackingCores)));
+        
+        // ((maxMoney / curMoney) - 1) / 0.0008215223649646 = threads
+        // const nthreads = (multiplier - 1) / oneThreadGrow;
+        
+        // logf(`new calc: ${nthreads}, ${targetServer.moneyAvailable * ns.formulas.hacking.growPercent(targetServer, nthreads, ns.getPlayer(), hackingCores)}`);
+        // logf(`calc: ${Math.ceil(Math.max(1, numCycleForGrowth(ns, targetServer, multiplier, hackingCores)))}`);
+
+        // growthAnalyze doesn't change it's result depending on amount of money available
+        //  only by the security level
+        return Math.ceil(Math.max(1, numCycleForGrowth(ns, targetServer, multiplier, hackingCores)));
     }
 
     /**
@@ -263,7 +306,6 @@ export async function main(ns) {
 
     // Prepare the target before any batches start
     let batchInfo = prepare(ns, targetServer);
-
     do {
         // Create enough batches until the min starting delay in a batch is greater than
         // the ending time of the first RunInfo
@@ -388,10 +430,20 @@ function weaken(ns, targetServer, delayStart) {
  * @returns {RunInfo} - Info required to run the action
  */
 function grow(ns, targetServer, delayStart) {
+    // Copy the server so we can run a grow calculation on it without the security increase
+    const serverBefore = cloneObj(targetServer);
     const info = action(ns, SCRIPT_GROWTH, targetServer, delayStart, HGWFunction.GROW, add);
 
+    const growPercent = ns.formulas.hacking.growPercent(serverBefore, info.threads, ns.getPlayer());
+
+    // logf(`grow: %%: ${growPercent}`);
+    // logf(`before: ${targetServer.moneyAvailable}/${targetServer.moneyMax}`);
     targetServer.moneyAvailable += 1 * info.threads; // Taken from the source code
-    targetServer.moneyAvailable *= getGrowthMultiplier(targetServer);
+    targetServer.moneyAvailable += targetServer.moneyAvailable * growPercent;
+    targetServer.moneyAvailable = Math.min(targetServer.moneyAvailable, targetServer.moneyMax);
+
+    // logf(`after: ${targetServer.moneyAvailable}/${targetServer.moneyMax}`);
+
     return info;
 }
 
@@ -445,10 +497,10 @@ function action(ns, scriptName, targetServer, priorEndTime, hgwFunction, difficu
 * @param {RunInfo} runInfo - Script run instance information
 * @param {Array<import("./NetscriptDefinitions").Server>} network - Array of whole network, sorted by available RAM descending
 * @param {boolean} tail - Open the script log file tail?
+* @param {boolean} logToTerminal - If the ran scripts should log their output to the terminal or their local log
 * @returns {number} -1 if all threads were run, or how many threads were successfully run otherwise
 */
-function runNetworkScript(ns, runInfo, network, tail = false) {
-    const logToTerminal = false;
+function runNetworkScript(ns, runInfo, network, tail = false, logToTerminal = false) {
 
     /**
      * @param {RunInfo} runInfo 
@@ -470,7 +522,9 @@ function runNetworkScript(ns, runInfo, network, tail = false) {
     for (let serv of network) {
         if (!ns.fileExists(fixScriptName(runInfo.script), serv.hostname)) {
             logf(`Upload script to ${serv.hostname}`);
-            scpScript(runInfo, serv);
+            if (!scpScript(runInfo, serv)) {
+                logf(`WARN: Script '${runInfo.script}' failed to upload to ${serv.hostname}!`);
+            }
         }
 
         let avail = serverRamAvailable(ns.getServer(serv.hostname));
@@ -478,8 +532,10 @@ function runNetworkScript(ns, runInfo, network, tail = false) {
         if (avail >= runInfo.ramNeeded(threadsRun)) {
             // We have enough ram to either finish or do it all at once
             let pid = nsExec(runInfo, serv, (runInfo.threads - threadsRun));
-            if (pid == 0) logf(`WARN: Unable to execute full script!`);
-            threadsRun += runInfo.threads;
+            if (pid == 0) logf(`WARN: Unable to execute full script!\n== Script ==\n${JSON.stringify(runInfo)}\n== Server ==\n${JSON.stringify(serv)}`);
+            else {
+                threadsRun += runInfo.threads;
+            }
 
             if (tail) ns.tail(pid, serv.hostname, runInfo.startDelayTime, runInfo.targetServer.hostname);
             logf(`runNetworkScript: Full run of ${runInfo.toString()} on ${serv.hostname}`);
@@ -488,12 +544,15 @@ function runNetworkScript(ns, runInfo, network, tail = false) {
         else if (avail >= runInfo.getScriptRam()) {
             // We don't have enough ram to do it all at once, but we can do at least one
             const toRun = Math.floor(avail / runInfo.getScriptRam());
+            logf(`runNetworkScript: Partial run of ${toRun} threads on ${serv.hostname} (scriptRam: ${runInfo.getScriptRam()}).`);
             let pid = nsExec(runInfo, serv, toRun);
-            if (pid == 0) logf(`WARN: Unable to execute script!`);
-            threadsRun += toRun;
+            if (pid == 0) logf(`WARN: Unable to execute script!\n== Script ==\n${JSON.stringify(runInfo)}\n== Server ==\n${JSON.stringify(serv)}`);
+            else {
+                threadsRun += toRun;
+            }
 
             if (tail) ns.tail(pid, serv.hostname, runInfo.startDelayTime, runInfo.targetServer.hostname);
-            logf(`runNetworkScript: Partial run of ${toRun} threads on ${serv.hostname}.`);
+
         }
         // Can't run anything else on this server
     }
@@ -529,13 +588,17 @@ async function executeRunList(ns, batchInfo) {
 
     // Check if there are any single operations that require more ram than we have in the whole network
     // We can't run this list, so error out
-    if (batchInfo.runs.some((elem) => elem.ramNeeded() > netRam)) {
-        loge(`ERROR: Network RAM is insufficient to run a single RunInfo`);
+    const ops = batchInfo.runs.filter((elem) => elem.ramNeeded() > netRam);
+    if (ops.length != 0) {
+        loge(`ERROR: Network RAM is insufficient to run a single RunInfo!`);
+        ops.forEach(e => {
+            loge(`ERROR:\t${e.script}, ${e.threads}, instance ram: ${e.getScriptRam()}, run ram: ${e.ramNeeded()}`);
+        })
         return false;
     }
 
     if (ramNeeded > netRam) {
-        logf(`WARN: Don't have enough ram across the network to run the requested operation, execution time will be longer as a result`);
+        // logf(`WARN: Don't have enough ram across the network to run the requested operation, execution time will be longer as a result`);
     }
 
     const sortedNetwork = Array.from(servers).sort(serverSort);
@@ -546,13 +609,12 @@ async function executeRunList(ns, batchInfo) {
 
         if (threadsRan != -1) {
             // Everything has not finished running, so we need to wait until at least some are completed.
-            
+
             batchInfo = await pauseAndAdjustBatch(batchInfo);
-            logf(`Continuing execution.`);
             i -= 1;
         }
     }
-    logf(`Run list has been executed. Will complete in ${formatTime(batchInfo.lastRun().endTime)}.`);
+    logf(`Run list has been executed. Will complete in ${formatTime(batchInfo.lastRun()?.endTime)}.`);
     return true;
 }
 
@@ -704,6 +766,16 @@ function formatMoney(money) {
 
 function clamp(number, min, max) {
     return Math.max(min, Math.min(number, max));
+}
+
+/**
+ * Attempt to create a clone of the object
+ * @template T
+ * @param {T} obj
+ * @returns {T} 
+ */
+function cloneObj(obj) {
+    return JSON.parse(JSON.stringify(obj));
 }
 
 // #endregion
