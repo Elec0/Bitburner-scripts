@@ -48,8 +48,8 @@ const SETTLE_TIME = 50;
 const HACK_AMT = 0.99;
 
 class BatchParameters {
-    /** How much of the hacking server's ram do we want to use for our batches? */
-    static MAX_RAM_USED = 0.25;
+    /** How much of our home's ram do we want to use for our batches? */
+    static MAX_HOME_RAM_USED = 0.75;
 
     static MAX_BATCHES = 10;
 
@@ -272,15 +272,6 @@ export async function main(ns) {
      */
     let getNumGrowthThreads = (targetServer, hackingCores, _hgwFunction) => {
         let multiplier = getGrowthMultiplier(targetServer); // threads, cores
-        
-        // ((maxMoney / curMoney) - 1) / 0.0008215223649646 = threads
-        // const nthreads = (multiplier - 1) / oneThreadGrow;
-        
-        // logf(`new calc: ${nthreads}, ${targetServer.moneyAvailable * ns.formulas.hacking.growPercent(targetServer, nthreads, ns.getPlayer(), hackingCores)}`);
-        // logf(`calc: ${Math.ceil(Math.max(1, numCycleForGrowth(ns, targetServer, multiplier, hackingCores)))}`);
-
-        // growthAnalyze doesn't change it's result depending on amount of money available
-        //  only by the security level
         return Math.ceil(Math.max(1, numCycleForGrowth(ns, targetServer, multiplier, hackingCores)));
     }
 
@@ -645,7 +636,7 @@ async function pauseAndAdjustBatch(batchInfo) {
 async function getTotalNetworkRam(ns) {
     let ram = 0;
 
-    const availableRam = (_, server) => { ram += server.maxRam - server.ramUsed };
+    const availableRam = (_, server) => { ram += serverRamAvailable(server) };
     const totalRam = (_, server) => { ram += server.maxRam };
     const visitedCondition = (_, server) => server.hasAdminRights;
 
@@ -710,7 +701,10 @@ const serverSort = (server1, server2) => serverRamAvailable(server2) - serverRam
  * @param {import("./NetscriptDefinitions").Server} server 
  * @returns {number}
  */
-const serverRamAvailable = (server) => server.maxRam - server.ramUsed;
+const serverRamAvailable = (server) => {
+    const maxMod = (server.hostname == "home") ? BatchParameters.MAX_HOME_RAM_USED : 1;
+    return (server.maxRam * maxMod) - server.ramUsed;
+}
 // #endregion Lambda functions
 
 // #region Utility functions
