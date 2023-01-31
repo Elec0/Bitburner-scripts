@@ -11,8 +11,6 @@ export async function main(ns) {
         hostname: "home", visited: new Set(), callback: (ns, server) => doHack(ns, server),
         isAsync: true
     });
-
-    ns.tprint("== Done ==");
 }
 
 /** 
@@ -20,7 +18,7 @@ export async function main(ns) {
  * @param {import("./NetscriptDefinitions").NS} ns
  * @param {import("./NetscriptDefinitions").Server} server
 */
-function doHack(ns, server) {
+async function doHack(ns, server) {
     const hostname = server.hostname;
     const ports = server.numOpenPortsRequired;
 
@@ -51,6 +49,8 @@ function doHack(ns, server) {
         try {
             ns.nuke(hostname);
             ns.tprintf("Breached %s", hostname);
+            
+            // With Singularity, run installBackdoor.
         }
         catch (err) {
             ns.tprintf("ERROR: \tCaught on nuke(%s), ports: %s/%s, RAM: %s, hack level: %s / %s",
@@ -59,7 +59,6 @@ function doHack(ns, server) {
         }
     }
 }
-
 /** @param {import("./NetscriptDefinitions").NS} ns */
 export function numPortHacksPresent(ns) {
     let result = 0;

@@ -34,14 +34,14 @@ export async function main(ns) {
     if (printOnly) return;
  
     let purchasedServers = ns.getPurchasedServers();
+    ns.tprintf("%s/%s servers owned", purchasedServers.length, limit);
     while (purchasedServers.length < limit) {
-        ns.tprintf("%s/%s servers owned", purchasedServers.length, limit);
         if (ns.getPurchasedServerCost(gbToBuy) <= ns.getPlayer().money) {
             const newServer = ns.purchaseServer(Constants.MY_SERVERS_PREFIX, gbToBuy);
             ns.tprintf("Bought %s, %sGB server", newServer, gbToBuy);
         }
         else {
-            ns.sleep(2000);
+            await ns.sleep(2000);
         }
         purchasedServers = ns.getPurchasedServers();
     }
