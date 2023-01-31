@@ -36,9 +36,7 @@ export async function main(ns) {
 
     await traverse({
         ns: ns,
-        hostname: "home", visited: new Set(), callback: traverseCallback,
-        killScript: true, scriptName: flags.script.toString(), killOurs: true,
-        isAsync: true
+        hostname: "home", visited: new Set(), callback: traverseCallback, isAsync: true
     });
 
     if (ns.getPurchasedServers().length != 0) {
@@ -58,6 +56,7 @@ export async function main(ns) {
  * @param {import("./NetscriptDefinitions").Server} server 
  */
 async function traverseCallback(ns, server) {
+    // @todo kill scripts on server
     if (doHack(ns, server)) {
         await runScript(ns, server, HackTarget);
     }

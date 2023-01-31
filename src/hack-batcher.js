@@ -286,8 +286,11 @@ function numCycleForGrowth(ns, server, growth, cores = 1) {
 export async function main(ns) {
     let flags = ns.flags([
         ["help", false],
-        ["infinite", false]
+        ["infinite", false],
+        ["tail", true]
     ]);
+
+    disableLogging(ns);
 
     switch (LOG_TYPE) {
         case LogTypes.TERMINAL:
@@ -299,6 +302,7 @@ export async function main(ns) {
     }
     loge = ns.tprint;
 
+    // #region lambdas
     /**
      * @param {import("./NetscriptDefinitions").Server} targetServer 
      * @param {number} hackingCores 
@@ -333,6 +337,7 @@ export async function main(ns) {
         let hackPerThread = ns.formulas.hacking.hackPercent(targetServer, ns.getPlayer());
         return Math.round((moneyToHack / targetServer.moneyMax) / hackPerThread);
     }
+    // #endregion
 
     HGWFunction.HACK = new HGWFunction("hack", ns.hackAnalyzeSecurity, ns.formulas.hacking.hackTime, getNumHackThreads);
     HGWFunction.GROW = new HGWFunction("grow", ns.growthAnalyzeSecurity, ns.formulas.hacking.growTime, getNumGrowthThreads);
@@ -341,8 +346,9 @@ export async function main(ns) {
     let target = String(flags["_"][0]);
     let targetServer = ns.getServer(target);
 
-    if (LOG_TYPE == LogTypes.FILE) {
+    if (LOG_TYPE == LogTypes.FILE && flags.tail) {
         ns.tail(); // Pop up the window if it's file logging
+        sizeTail(ns);
     }
 
     // Prepare the target before any batches start
@@ -752,6 +758,28 @@ function getScriptRam(ns, scriptName) {
 function fixScriptName(scriptName) {
     if (!scriptName.startsWith("/")) scriptName = "/" + scriptName;
     return scriptName;
+}
+
+/**
+ * Turn off internal logging for some functions so they don't spam the tail
+ * @param {import("./NetscriptDefinitions").NS} ns 
+ */
+function disableLogging(ns) {
+    let disabledFunctions = ["sleep", "scan", "exec"];
+    for (let func of disabledFunctions) {
+        ns.disableLog(func);
+    }
+}
+
+/** 
+ * This doesn't do anything, not sure why
+ * @param {import("./NetscriptDefinitions").NS} ns 
+ */
+function sizeTail(ns) {
+    const wndDimens = { width: window.innerWidth, height: window.innerHeight };
+    const size = { width: Math.round(wndDimens.width * 0.5), height: Math.round(wndDimens.height * 0.35) };
+    ns.resizeTail(size.width, size.height);
+    ns.moveTail(wndDimens.width - size.width, 0);
 }
 
 // #region Lambda functions
