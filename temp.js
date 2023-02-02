@@ -1,6 +1,8 @@
 //@ts-check
 // import { traverse } from "./lib/traverse";
 
+import { Constants } from "./lib/constants";
+
 /** @type {import("./src/NetscriptDefinitions").Server[]} */
 var moneyList = [];
 
@@ -11,9 +13,16 @@ const ONLY_ADMIN = false;
 
 /** @param {import("./src/NetscriptDefinitions").NS} ns */
 export async function main(ns) {
-    ns.tprint(ns.getScriptRam("temp.js", "home"));
+    let servers = ns.getPurchasedServers();
+    for(let i = 0; i < servers.length; ++i) {
+        const ram = ns.getServerMaxRam(servers[i]);
+        ns.renamePurchasedServer(servers[i], `${Constants.MY_SERVERS_PREFIX}-${ram}(${Math.log2(ram)})-${i}`);
+    }
 }
+/*
+2^x = n
 
+*/
 /**
  * @param {import("./src/NetscriptDefinitions").NS } ns 
  * @param {string} hostname 

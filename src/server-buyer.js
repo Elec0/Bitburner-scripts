@@ -37,7 +37,13 @@ export async function main(ns) {
     ns.tprintf("%s/%s servers owned", purchasedServers.length, limit);
     while (purchasedServers.length < limit) {
         if (ns.getPurchasedServerCost(gbToBuy) <= ns.getPlayer().money) {
-            const newServer = ns.purchaseServer(Constants.MY_SERVERS_PREFIX, gbToBuy);
+            let i = 0;
+            let newName = `${Constants.MY_SERVERS_PREFIX}-${gbToBuy}(${gbPowerToBuy})-${i}`;
+            while (ns.serverExists(newName)) {
+                i++;
+                newName = newName.replace(/-\d+$/, `-${i}`)
+            }
+            const newServer = ns.purchaseServer(newName, gbToBuy);
             ns.tprintf("Bought %s, %sGB server", newServer, gbToBuy);
         }
         else {
