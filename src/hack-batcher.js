@@ -286,8 +286,8 @@ function numCycleForGrowth(ns, server, growth, cores = 1) {
 export async function main(ns) {
     let flags = ns.flags([
         ["help", false],
-        ["infinite", false],
-        ["tail", true]
+        ["infinite", true],
+        ["tail", false]
     ]);
 
     disableLogging(ns);
@@ -608,7 +608,7 @@ function runNetworkScript(ns, runInfo, network, tail = false, logToTerminal = fa
         threadInfo += (threadInfo.length >= 8 ? "" : "\t") + "\t";
 
         logf(`INFO: ${runInfo.scriptType}\t${threadInfo}\t${runInfo.ramNeeded(threadsRun)}` +
-            `\t${runInfo.execTime.toFixed(1)}\t${runInfo.delayTime.toFixed(1)}\t${runInfo.endTime.toFixed(1)}`);
+            `\t${formatTime(runInfo.execTime)}\t${formatTime(runInfo.delayTime)}\t${formatTime(runInfo.endTime)}`);
     }
     // Done with the entire network
     // Let our caller know what we accomplished
@@ -765,7 +765,7 @@ function fixScriptName(scriptName) {
  * @param {import("./NetscriptDefinitions").NS} ns 
  */
 function disableLogging(ns) {
-    let disabledFunctions = ["sleep", "scan", "exec"];
+    let disabledFunctions = ["sleep", "scan", "exec", "scp"];
     for (let func of disabledFunctions) {
         ns.disableLog(func);
     }
