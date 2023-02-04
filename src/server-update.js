@@ -1,6 +1,20 @@
-// //@ts-check
+//@ts-check
+
+import { Constants } from "lib/constants";
+
 /** @param {import("./NetscriptDefinitions").NS} ns **/
 export async function main(ns) {
+    let flags = ns.flags([
+        ["help", false],
+        ["h", false]
+    ]);
+
+
+    if (flags.help || flags.h) {
+        ns.tprint(`INFO: usage: server-update ramPo2 (--help)`);
+        ns.tprint(`INFO: ramPo2: what power of 2 ram to upgrade to.`);
+        return;
+    }
     //tR (targetRam) (First argument that tells the targeted amount of RAM)
     const targetRam = Math.pow(2, Number(ns.args[0]));
     //tRSC (targetRamServerCost) (How much the server will cost with the given amount of RAM)
@@ -21,6 +35,7 @@ export async function main(ns) {
                     // ns.purchaseServer(newName, targetRam);
                     ns.tprint("Upgraded " + serverName + " to " + targetRam + " ram");
                     serversUpgraded++;
+                    fixNames(ns, serverName, targetRam);
                 }
                 else {
                     ns.tprint(`Upgrade failed for some reason`);
@@ -40,4 +55,19 @@ export async function main(ns) {
     } else {
         ns.tprint(`Servers not upgraded. Need $${targetRamServerCost}, have $${ns.getPlayer().money}`);
     }
+}
+
+/**
+ * 
+ * @param {import("./NetscriptDefinitions").NS} ns 
+ * @param {string} serverName 
+ * @param {number} newRam 
+ */
+function fixNames(ns, serverName, newRam) {
+    let i = 0
+    let newName = (j) => `${Constants.MY_SERVERS_PREFIX}-${newRam}(${Math.log2(newRam)})-${j}`;
+    while (ns.serverExists(newName(i))) {
+        i++;
+    }
+    ns.renamePurchasedServer(serverName, newName(i));
 }

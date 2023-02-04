@@ -8,7 +8,8 @@ export async function main(ns) {
         ["h", false],
         ["dry-run", false], 
         ["d", false],
-        ["s", false]
+        ["s", false],
+        ["f", false]
     ]);
 
     // @ts-ignore
@@ -21,22 +22,20 @@ export async function main(ns) {
         ns.tprint("INFO: (s)ingle:\tOnly buy 1, not max");
         return;
     }
-    
     const gbPowerToBuy = Number(flags["_"][0]);
     const gbToBuy = Math.pow(2, gbPowerToBuy);
     const printOnly = Boolean(flags.dry_run || flags.d);
     const single = Boolean(flags.s);
     const limit = single ? 1 : ns.getPurchasedServerLimit();
     let cost = ns.getPurchasedServerCost(gbToBuy) * limit;
-
-    ns.tprintf("Buying %s %sGB servers, total cost of: $%s", limit, gbToBuy, cost.toLocaleString("en-US"));
+    ns.tprintf(`Buying ${limit} 2^${gbPowerToBuy} = ${gbToBuy} GB servers, total cost of: ${cost} $${cost.toLocaleString("en-US")}`);
 
     if (printOnly) return;
  
     let purchasedServers = ns.getPurchasedServers();
     ns.tprintf("%s/%s servers owned", purchasedServers.length, limit);
     while (purchasedServers.length < limit) {
-        if (ns.getPurchasedServerCost(gbToBuy) <= ns.getPlayer().money) {
+        if (flags.f || ns.getPurchasedServerCost(gbToBuy) <= ns.getPlayer().money) {
             let i = 0;
             let newName = `${Constants.MY_SERVERS_PREFIX}-${gbToBuy}(${gbPowerToBuy})-${i}`;
             while (ns.serverExists(newName)) {
