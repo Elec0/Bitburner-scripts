@@ -13,6 +13,9 @@ const ONLY_ADMIN = false;
 
 /** @param {import("./src/NetscriptDefinitions").NS} ns */
 export async function main(ns) {
+    let flags = ns.flags([["test", false], ["no-nope", false]]);
+    ns.tprint(flags);
+    
     let servers = ns.getPurchasedServers();
     for (let i = 0; i < servers.length; ++i) {
         const ram = ns.getServerMaxRam(servers[i]);

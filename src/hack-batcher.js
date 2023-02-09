@@ -178,6 +178,11 @@ class RunInfo {
     endTime = 0;
     /** @type {number} */
     threads = 0;
+    /** 
+     * @readonly
+     * @type {number} 
+     */
+    initThreads = 0;
     /** @type {string} */
     script = "";
     /** @type {import("./NetscriptDefinitions").Server} */
@@ -203,6 +208,7 @@ class RunInfo {
         this.delayTime = startDelayTime;
         this.endTime = endTime;
         this.threads = threads;
+        this.initThreads = threads;
         this.script = script;
         this.targetServer = targetServer;
         this.scriptType = match(script)
@@ -213,12 +219,13 @@ class RunInfo {
     }
 
     /**
-     * How much ram is needed to run.
+     * How much ram is needed to run the initital value of `threads`.
      * @param {number} [threadsRun=0] - Modify given some of the threads have been run.
      * @returns {number}
      */
     ramNeeded(threadsRun = 0) {
-        return this.getScriptRam() * (this.threads - threadsRun);
+        // If the server doesn't need to be weakened or grown, then the threads will be 0
+        return this.getScriptRam() * Math.max(this.initThreads - threadsRun, 0);
     }
 
     /**
@@ -244,7 +251,7 @@ const LogTypes = {
     FILE: "file"
 }
 /** @type {LogTypes} */
-const LOG_TYPE = LogTypes.FILE;
+const LOG_TYPE = LogTypes.TERMINAL;
 let logf;
 let loge;
 
@@ -286,7 +293,7 @@ function numCycleForGrowth(ns, server, growth, cores = 1) {
 export async function main(ns) {
     let flags = ns.flags([
         ["help", false],
-        ["infinite", true],
+        ["no-infinite", false],
         ["tail", false]
     ]);
 
@@ -353,6 +360,9 @@ export async function main(ns) {
 
     // Prepare the target before any batches start
     let batchInfo = prepare(ns, targetServer);
+    // let batchInfo = createHWGWBatch(ns, targetServer);
+    // const executeResult = await executeRunList(ns, batchInfo);
+    // return;
     do {
         // Create and run one batch at a time. The execute function will pause us when
         // the network runs out of ram
@@ -371,8 +381,7 @@ export async function main(ns) {
         // We want to wait for a little bit so the loop doesn't hang the game with large amounts of ram
         batchInfo = await pauseAndAdjustBatch(ns, batchInfo, 60);
 
-    } while (flags.infinite);
-    ns.closeTail();
+    } while (!flags["no-infinite"]);
 }
 
 /** 
@@ -447,7 +456,8 @@ function hack(ns, targetServer, priorEndTime) {
 
     /** @type {RunInfo} */
     const info = action(ns, SCRIPT_HACKING, targetServer, priorEndTime, HGWFunction.HACK, add);
-    targetServer.moneyAvailable -= targetServer.moneyAvailable * (hackPerThread * info.threads);
+    // Let's assume the server has max money, since it should at this point
+    targetServer.moneyAvailable = targetServer.moneyMax * (hackPerThread * info.threads);
 
     return info;
 }
@@ -579,6 +589,7 @@ function runNetworkScript(ns, runInfo, network, tail = false, logToTerminal = fa
             const pid = nsExec(runInfo, serv, (runInfo.threads - threadsRun));
             if (pid == 0) logf(`WARN: Unable to execute full script!\n== Script ==\n${JSON.stringify(runInfo)}\n== Server ==\n${JSON.stringify(serv)}`);
             else {
+                // I'm not sure why I did it this way. If is run all at once, isn't threadsRun == runInfo.threads?
                 threadsRun += (runInfo.threads - threadsRun);
             }
 
@@ -603,12 +614,20 @@ function runNetworkScript(ns, runInfo, network, tail = false, logToTerminal = fa
     }
 
     if (threadsRun > 0) {
-        // each tabstop = 8 characters
-        let threadInfo = `(${threadsRun}/${runInfo.threads})`;
-        threadInfo += (threadInfo.length >= 8 ? "" : "\t") + "\t";
-
-        logf(`INFO: ${runInfo.scriptType}\t${threadInfo}\t${runInfo.ramNeeded(threadsRun)}` +
-            `\t${formatTime(runInfo.execTime)}\t${formatTime(runInfo.delayTime)}\t${formatTime(runInfo.endTime)}`);
+        const output = [runInfo.scriptType, runInfo.threads, `(${threadsRun}/${runInfo.threads})`,
+        runInfo.ramNeeded(), formatTime(runInfo.execTime),
+        formatTime(runInfo.delayTime), formatTime(runInfo.endTime)
+        ];
+        const green = "\u001b[32m";
+        const lightBlue = "\u001b[38;33m";
+        const yellow = "\u001b[33m";
+        const reset = "\u001b[0m";
+        const lineColor = match(runInfo.scriptType)
+            .on(m => m == HGWEnum.H, () => green)
+            .on(m => m == HGWEnum.G, () => lightBlue)
+            .on(m => m == HGWEnum.W, () => yellow)
+            .otherwise(() => reset);
+        logf(`${lineColor}${output.map((val) => String(val).padEnd(15)).join("")}${reset}`);
     }
     // Done with the entire network
     // Let our caller know what we accomplished
@@ -632,8 +651,8 @@ async function executeRunList(ns, batchInfo) {
     // We can't use the ram the current script is using, so remove it
     const netRam = netRamTotal - getScriptRam(ns, ns.getScriptName());
 
-    logf(`run list length: ${batchInfo.runs.length}, Available network RAM: ${formatLocale(netRamAvailable)}/${formatLocale(netRamTotal)}, ` +
-        `Total RAM needed: ${formatLocale(batchInfo.ramNeeded())}`);
+    logf(`Run list length: ${batchInfo.runs.length}, Network RAM: ${formatLocale(netRamAvailable)}/${formatLocale(netRamTotal)} GB, ` +
+        `Total RAM needed: ${formatLocale(batchInfo.ramNeeded())} GB`);
 
     // Check if there are any single operations that require more ram than we have in the whole network
     // We can't run this list, so error out
@@ -647,8 +666,9 @@ async function executeRunList(ns, batchInfo) {
     }
 
     let sortedNetwork = Array.from(servers).sort(serverSort);
-
-    logf(`INFO: type\tthreads (ran/total)\treq ram\texec\tdelay\tend`);
+    let headers = ["type", "threads", "(ran/total)", "tot ram (gb)", "exec", "delay", "end"];
+    let text = headers.map((val) => val.padEnd(15));
+    logf(`${text.join("")}`);
 
     let i = 0;
     while (i < batchInfo.runs.length) {
@@ -657,6 +677,11 @@ async function executeRunList(ns, batchInfo) {
         if (elem == undefined) {
             logf(`ERROR: elem is undefined. i=${i}, length=${batchInfo.runs.length}`);
             return false;
+        }
+        // We don't remove entries until they are completed, so if there are no threads left, don't run anything
+        if (elem.threads == 0) {
+            i++;
+            continue;
         }
         const threadsRan = runNetworkScript(ns, elem, sortedNetwork, false);
 
@@ -776,6 +801,7 @@ function disableLogging(ns) {
  * @param {import("./NetscriptDefinitions").NS} ns 
  */
 function sizeTail(ns) {
+    // @ts-ignore
     const wndDimens = { width: window.innerWidth, height: window.innerHeight };
     const size = { width: Math.round(wndDimens.width * 0.5), height: Math.round(wndDimens.height * 0.35) };
     ns.resizeTail(size.width, size.height);
@@ -825,7 +851,6 @@ const serverRamAvailable = (server) => {
 
 // #region Utility functions
 // -------------------------
-
 /**
  * Return the last element in the array
  * @template T

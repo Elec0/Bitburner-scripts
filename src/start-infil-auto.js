@@ -2,7 +2,7 @@
 //@ts-check
 import { Constants } from "lib/constants";
 
-const REP_GAINED_PER_RUN = 88898;
+const REP_GAINED_PER_RUN = 72000;
 
 /**
  * Automatically keep re-starting the automated infiltration for easy rep. 
