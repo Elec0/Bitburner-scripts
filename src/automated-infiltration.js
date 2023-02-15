@@ -837,5 +837,5 @@ function unwrapEventListeners() {
  */
 export function autocomplete(data, args) {
 	// return {"test": "testing"};
-	return ["CyberSec", "Tian Di Hui", "Netburners", "Shadows of Anarchy", "Sector-12", "Chongqing", "New Tokyo", "Ishima", "Aevum", "Volhaven", "NiteSec", "The Black Hand", "BitRunners", "ECorp", "MegaCorp", "KuaiGong International", "Four Sigma", "NWO", "Blade Industries", "OmniTek Incorporated", "Bachman & Associates", "Clarke Incorporated", "Fulcrum Secret Technologies", "Slum Snakes", "Tetrads", "Silhouette", "Speakers for the Dead", "The Dark Army", "The Syndicate", "The Covenant", "Daedalus", "Illuminati", "Bladeburners", "Church of the", "Machine God"];
+	return ["CyberSec", "'Tian Di Hui'", "Netburners", "'Shadows of Anarchy'", "Sector-12", "Chongqing", "'New Tokyo'", "Ishima", "Aevum", "Volhaven", "NiteSec", "'The Black Hand'", "BitRunners", "ECorp", "MegaCorp", "'KuaiGong International'", "'Four Sigma'", "NWO", "'Blade Industries'", "'OmniTek Incorporated'", "Bachman & Associates", "'Clarke Incorporated'", "'Fulcrum Secret Technologies'", "'Slum Snakes'", "Tetrads", "Silhouette", "'Speakers for the Dead'", "'The Dark Army'", "'The Syndicate'", "'The Covenant'", "Daedalus", "Illuminati", "Bladeburners", "'Church of the'", "'Machine God'"];
 }

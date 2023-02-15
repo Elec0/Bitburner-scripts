@@ -13,9 +13,20 @@ const ONLY_ADMIN = false;
 
 /** @param {import("./src/NetscriptDefinitions").NS} ns */
 export async function main(ns) {
-    let flags = ns.flags([["test", false], ["no-nope", false]]);
+    let flags = ns.flags([
+        ["test", false],
+        ["no-nope", false],
+        ["all-focus", ""]
+    ]);
     ns.tprint(flags);
-    
+
+    ns.tprint(ns.sleeve.getNumSleeves());
+    for (let i = 0; i < ns.sleeve.getNumSleeves(); ++i) {
+        ns.tprint(ns.sleeve.getSleeve(i));
+    }
+}
+
+function renameServers(ns) {
     let servers = ns.getPurchasedServers();
     for (let i = 0; i < servers.length; ++i) {
         const ram = ns.getServerMaxRam(servers[i]);
