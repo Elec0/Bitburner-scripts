@@ -15,7 +15,7 @@ export async function main(ns) {
         ["h", false],
         ["runs", 0],
         ["rep", 0]
-    ])
+    ]);
 
     if ((flags.runs && flags.rep) || (!flags.runs && !flags.rep)) {
         flags.h = true;
@@ -56,7 +56,7 @@ async function execRuns(ns, runs) {
             // Check if we're done, and
             // If the parent script isn't running anymore, we don't want to keep with the intervals
             try {
-                if (completedRuns >= runs || !ns.scriptRunning(ns.getScriptName(), ns.getHostname())) {
+                if ((runs != -1 && completedRuns >= runs) || !ns.scriptRunning(ns.getScriptName(), ns.getHostname())) {
                     console.log("Time to quit, clearing interval");
                     endInterval();
                     return;

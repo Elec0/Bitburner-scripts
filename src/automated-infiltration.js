@@ -688,6 +688,9 @@ function playGame() {
 		endInfiltration();
 		return;
 	}
+	else {
+		console.log(title);
+	}
 
 	if ("get ready" === title) {
 		return;

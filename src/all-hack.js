@@ -1,16 +1,21 @@
 //@ts-check
 import { traverse } from "lib/traverse";
 import { Constants } from "lib/constants";
+import {connectToRemote } from "lib/connect-path";
+import {formatTime} from "lib/utils";
 
+const MAX_BACKDOOR_TIME = 10; // Seconds
 /** @param {import("./NetscriptDefinitions").NS} ns */
 export async function main(ns) {
     let noRamAvoid = [ns.brutessh, ns.ftpcrack, ns.relaysmtp, ns.httpworm, ns.sqlinject];
-
     await traverse({
         ns: ns,
-        hostname: "home", visited: new Set(), callback: (ns, server) => doHack(ns, server),
+        hostname: "home", visited: new Set(), callback: doHack,
         isAsync: true
     });
+
+    ns.singularity.connect("home");
+    ns.tprint(`Done`);
 }
 
 /** 
@@ -49,14 +54,28 @@ async function doHack(ns, server) {
         try {
             ns.nuke(hostname);
             ns.tprintf("Breached %s", hostname);
-            
-            // With Singularity, run installBackdoor.
         }
         catch (err) {
             ns.tprintf("ERROR: \tCaught on nuke(%s), ports: %s/%s, RAM: %s, hack level: %s / %s",
                 hostname, server.openPortCount, ports, server.maxRam, ns.getPlayer().skills.hacking, server.requiredHackingSkill);
             return;
         }
+    }
+    if (!server.backdoorInstalled) {
+        connectToRemote(ns, hostname);
+        // Should be connected to server now
+        const backdoorTime = ns.getHackTime(hostname) / 4;
+
+        ns.tprint(`Installing backdoor on ${hostname}. Time: ${formatTime(backdoorTime)}`);
+        if (backdoorTime >= MAX_BACKDOOR_TIME * 1000) {
+            ns.tprint(`\tBackdoor time out of acceptable range, skipping`);
+            return;
+        }
+
+        await ns.singularity.installBackdoor();
+        
+        ns.tprintf("Backdoor installed on %s", ns.singularity.getCurrentServer());
+        ns.singularity.connect("home");
     }
 }
 /** @param {import("./NetscriptDefinitions").NS} ns */

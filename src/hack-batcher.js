@@ -627,7 +627,6 @@ function runNetworkScript(ns, runInfo, network, tail = false, logToTerminal = fa
             .on(m => m == HGWEnum.G, () => lightBlue)
             .on(m => m == HGWEnum.W, () => yellow)
             .otherwise(() => reset);
-        // @ts-ignore
         logf(`${lineColor}${output.map((val) => String(val).padEnd(15)).join("")}${reset}`);
     }
     // Done with the entire network
@@ -668,7 +667,6 @@ async function executeRunList(ns, batchInfo) {
 
     let sortedNetwork = Array.from(servers).sort(serverSort);
     let headers = ["type", "threads", "(ran/total)", "tot ram (gb)", "exec", "delay", "end"];
-    // @ts-ignore
     let text = headers.map((val) => val.padEnd(15));
     logf(`${text.join("")}`);
 
