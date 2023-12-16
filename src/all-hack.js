@@ -4,10 +4,22 @@ import { Constants } from "lib/constants";
 import {connectToRemote } from "lib/connect-path";
 import {formatTime} from "lib/utils";
 
-const MAX_BACKDOOR_TIME = 10; // Seconds
+const DEFAULT_MAX_BACKDOOR_TIME = 10; // Seconds
+let customBackdoorTime;
+let flags;
+
 /** @param {import("./NetscriptDefinitions").NS} ns */
 export async function main(ns) {
+    // @ts-ignore
     let noRamAvoid = [ns.brutessh, ns.ftpcrack, ns.relaysmtp, ns.httpworm, ns.sqlinject];
+    flags = ns.flags([
+        ["timeout", DEFAULT_MAX_BACKDOOR_TIME],
+        ["no-timeout", false],
+        ["no-backdoor", false]
+    ]);
+
+    let customBackdoorTime = Number(flags.timeout);
+
     await traverse({
         ns: ns,
         hostname: "home", visited: new Set(), callback: doHack,
@@ -61,13 +73,13 @@ async function doHack(ns, server) {
             return;
         }
     }
-    if (!server.backdoorInstalled) {
+    if (!server.backdoorInstalled && !flags["no-backdoor"]) {
         connectToRemote(ns, hostname);
         // Should be connected to server now
         const backdoorTime = ns.getHackTime(hostname) / 4;
 
         ns.tprint(`Installing backdoor on ${hostname}. Time: ${formatTime(backdoorTime)}`);
-        if (backdoorTime >= MAX_BACKDOOR_TIME * 1000) {
+        if (!flags["no-timeout"] && backdoorTime >= customBackdoorTime * 1000) {
             ns.tprint(`\tBackdoor time out of acceptable range, skipping`);
             return;
         }
